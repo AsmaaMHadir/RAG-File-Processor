@@ -1,5 +1,8 @@
 # 📄 Document GPT - FastAPI Backend
 
+Credits to Shaheryar Yousaf for original source code.
+Expanding on his work to allow supporting larger datasets
+
 This FastAPI backend serves as the core API for handling document uploads, processing PDF files, embedding document content into a vector database , and allowing users to ask questions based on the uploaded document. The AI model uses OpenAI's embeddings to generate intelligent responses from the document content.
 
 ### 🛠️ Features
