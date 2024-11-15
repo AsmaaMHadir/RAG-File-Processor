@@ -1,85 +1,57 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import tempfile
 import os
 
-# Import the necessary functions from utils.py
-from utils import process_pdf, send_to_qdrant, qdrant_client, qa_ret, OpenAIEmbeddings
+from utils import process_file,send_to_pinecone,  OpenAIEmbeddings
 
 app = FastAPI()
 
-# Frontend URL
-FRONTEND_URL = os.getenv("FRONTEND_URL") 
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", FRONTEND_URL],  # Allow requests from your React app (adjust domain if necessary)
-    allow_credentials=True,
+    allow_origins=["*"], 
+    allow_credentials=False,
     allow_methods=["*"],  # Allow all methods (POST, GET, etc.)
-    allow_headers=["*"],  # Allow all headers
+
 )
 
 # Define a model for the question API
-class QuestionRequest(BaseModel):
-    question: str
+class FileProcessingRequest(BaseModel):
+    file_path: str
+    namespace: str = None     
+    openai_api_key : str = os.getenv("OPENAI_API_KEY")
+    pinecone_api_key : str = os.getenv("PINECONE_API_KEY")
 
 # Endpoint to upload a PDF and process it, sending to Qdrant
-@app.post("/upload-pdf/")
-async def upload_pdf(file: UploadFile = File(...)):
+@app.post("/process-file/")
+async def process_pdf(processingReq : FileProcessingRequest):
     """
-    Endpoint to upload a PDF file, process it, and store in the vector DB.
+    Endpoint to process a file and store in the vector DB.
     """
     try:
-        # Save uploaded file to a temporary location
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            temp_file.write(file.file.read())
-            temp_file_path = temp_file.name
 
         # Process the PDF to get document chunks and embeddings
-        document_chunks = process_pdf(temp_file_path)
+        document_chunks = await process_file(processingReq.file_path)
 
-        # Create the embedding model (e.g., OpenAIEmbeddings)
         embedding_model = OpenAIEmbeddings(
-            openai_api_key=os.getenv("OPENAI_API_KEY"),  # Assuming you're using env vars
-            model="text-embedding-ada-002"
+            openai_api_key=processingReq.openai_api_key,  # Assuming you're using env vars
+            model="text-embedding-3-large"
         )
 
         # Send the document chunks (with embeddings) to Qdrant
-        success = send_to_qdrant(document_chunks, embedding_model)
+        pinecone_vector_store = await send_to_pinecone(document_chunks, embedding_model,namespace=processingReq.namespace,pinecone_api_key=processingReq.pinecone_api_key)
 
-        # Remove the temporary file after processing
-        os.remove(temp_file_path)
 
-        if success:
-            return {"message": "PDF successfully processed and stored in vector DB"}
+        if pinecone_vector_store:
+            return {"message": "file successfully processed and stored in vector DB","vector store":pinecone_vector_store}
         else:
-            raise HTTPException(status_code=500, detail="Failed to store PDF in vector DB")
+            raise HTTPException(status_code=500, detail="Failed to store file in vector DB")
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
 
-# Endpoint to ask a question and retrieve the answer from the vector DB
-@app.post("/ask-question/")
-async def ask_question(question_request: QuestionRequest):
-    """
-    Endpoint to ask a question and retrieve a response from the stored document content.
-    """
-    try:
-        # Retrieve the Qdrant vector store (assuming qdrant_client() gives you access to it)
-        qdrant_store = qdrant_client()
-
-        # Get the question from the request body
-        question = question_request.question
-
-        # Use the question-answer retrieval function to get the response
-        response = qa_ret(qdrant_store, question)
-
-        return {"answer": response}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve answer: {str(e)}")
 
 # A simple health check endpoint
 @app.get("/")
