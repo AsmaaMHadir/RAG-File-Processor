@@ -10,7 +10,6 @@ langchain-openai
 tiktoken
 pinecone
 langchain-pinecone 
-pinecone-notebooks
 unstructured 
 openpyxl
 docx2txt
